@@ -77,10 +77,6 @@ Contributing
 ------------
 - Fork the repo, create a branch for your feature/bugfix, and open a pull request. Keep changes focused and add docs or tests where appropriate.
 
-License
--------
-- Add a license file to the project root if you plan to open source this repository.
-
 Acknowledgements
 ----------------
 - Built as a lightweight frontend demo for experimenting with AI-powered recipe assistance and a delightful cooking UI.
