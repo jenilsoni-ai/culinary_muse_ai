@@ -1,0 +1,7 @@
+{
+  "name": "Culinary Muse AI",
+  "description": "A smart cooking assistant that crafts personalized, low-effort recipes based on your dietary preferences, available ingredients, and current energy levels.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
