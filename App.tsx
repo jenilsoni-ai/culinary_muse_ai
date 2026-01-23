@@ -1,79 +1,37 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { UserPreferences, MealPlanResponse, OptimizationGoal, DietType, CityType, KitchenSetup } from './types';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { 
+  UserPreferences, MealPlanResponse, OptimizationGoal, 
+  DietType, CityType, KitchenSetup, PersonaType 
+} from './types';
+import Onboarding from './components/Onboarding';
 import PreferenceForm from './components/PreferenceForm';
+import SchedulingPanel from './components/SchedulingPanel';
 import MealPlanDisplay from './components/RecipeDisplay';
 import ChatWidget from './components/ChatWidget';
 import MusicPlayer from './components/MusicPlayer';
+import HealthCoachWidget from './components/HealthCoachWidget';
 import { generateMealPlan } from './services/geminiService';
 
-const LoadingOverlay: React.FC<{ onMinimize: () => void }> = ({ onMinimize }) => {
-  const [progress, setProgress] = useState(0);
-  const [step, setStep] = useState(0);
-  const steps = [
-    "Initializing Logistics Engine...",
-    "Scanning Pantry Inventory...",
-    "Applying City-Tier Cost Multipliers...",
-    "Analyzing User Workload & State...",
-    "Checking Workout Performance Goals...",
-    "Validating Daily Budget Constraints...",
-    "Optimizing Daily Cooking Sequence...",
-    "Finalizing Performance-Matched Plan..."
-  ];
+const CACHE_KEY = 'culinary_muse_latest_plan';
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setStep((s) => {
-        const next = s < steps.length - 1 ? s + 1 : s;
-        setProgress((next / (steps.length - 1)) * 100);
-        return next;
-      });
-    }, 1200);
-    return () => clearInterval(interval);
-  }, [steps.length]);
-
-  return (
-    <div className="fixed inset-0 z-[100] bg-stone-900/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center">
-      <div className="relative mb-12">
-        <div className="w-24 h-24 border-4 border-orange-500/20 border-t-orange-500 rounded-full animate-spin"></div>
-        <div className="absolute inset-0 flex items-center justify-center font-black text-white text-xl">M</div>
+const LoadingOverlay: React.FC<{ progress: number }> = ({ progress }) => (
+  <div className="fixed inset-0 z-[100] bg-stone-900/98 backdrop-blur-3xl flex flex-col items-center justify-center p-6 text-center">
+    <div className="w-32 h-32 border-4 border-orange-500/10 border-t-orange-500 rounded-full animate-spin mb-12"></div>
+    <div className="max-w-md w-full space-y-6">
+      <h2 className="text-4xl font-serif italic text-white animate-pulse">Synthesizing Profile...</h2>
+      <div className="w-full bg-stone-800 h-1.5 rounded-full overflow-hidden">
+        <div className="bg-orange-500 h-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
       </div>
-      
-      <div className="max-w-md w-full space-y-8">
-        <h2 className="text-3xl font-bold text-white font-serif italic">Crafting Your Plan</h2>
-        
-        <div className="w-full bg-stone-800 h-1.5 rounded-full overflow-hidden">
-          <div 
-            className="bg-orange-500 h-full transition-all duration-1000 ease-out" 
-            style={{ width: `${progress}%` }}
-          ></div>
-        </div>
-
-        <div className="bg-black/40 rounded-2xl p-6 border border-white/5 font-mono text-left space-y-2">
-          {steps.slice(0, step + 1).map((s, i) => (
-            <div key={i} className={`text-xs flex items-center gap-3 ${i === step ? 'text-orange-400' : 'text-stone-500'}`}>
-              <span className="w-4">{i === step ? "→" : "✓"}</span>
-              {s}
-            </div>
-          ))}
-          <div className="animate-pulse text-orange-500 text-xs ml-7">_</div>
-        </div>
-        
-        <button 
-          onClick={onMinimize}
-          className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all border border-white/10"
-        >
-          Continue in Background
-        </button>
-      </div>
+      <p className="text-[10px] font-black uppercase text-stone-500 tracking-[0.3em]">Grounding Logistics & Temporal Windows</p>
     </div>
-  );
-};
+  </div>
+);
 
 const App: React.FC = () => {
   const [plan, setPlan] = useState<MealPlanResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   
   const [prefs, setPrefs] = useState<UserPreferences>({
@@ -81,114 +39,104 @@ const App: React.FC = () => {
     ingredients: [],
     lockedIngredients: [],
     cityType: CityType.METRO,
-    dailyBudget: 500,
+    dailyBudget: 1000,
     kitchenSetup: KitchenSetup.STANDARD,
-    days: 1,
+    days: 3,
     timePerMeal: 30,
     workoutPlanEnabled: false,
-    persona: { workload: 'Medium', profession: 'Professional', mentalState: 'Stable' }
+    persona: { type: PersonaType.PROFESSIONAL, workload: 'Medium', dislikes: [] },
+    scheduling: { reminderTime: 'Both', cookingWindowStart: '18:00', cookingWindowEnd: '20:30', remindersPerDay: 2 },
+    onboardingStep: 0
   });
 
+  useEffect(() => {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        setPlan(parsed);
+      } catch (e) {
+        localStorage.removeItem(CACHE_KEY);
+      }
+    }
+  }, []);
+
   const handleGenerate = useCallback(async (currentPrefs: UserPreferences) => {
-    if (isLoading) return;
-    
+    if (currentPrefs.ingredients.length < 1) {
+      setError("Please add at least one ingredient to catalyze the recipe engine.");
+      return;
+    }
+
     setIsLoading(true);
-    setIsMinimized(false);
     setError(null);
+    setProgress(15);
     
+    const interval = setInterval(() => setProgress(p => p < 92 ? p + 3 : p), 700);
+
     try {
       const result = await generateMealPlan(currentPrefs);
-      if (!result || !result.days || result.days.length === 0) {
-        throw new Error("AI failed to return a valid plan structure. Ensure you have enough ingredients.");
-      }
       setPlan(result);
-      setIsMinimized(false);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      localStorage.setItem(CACHE_KEY, JSON.stringify(result));
     } catch (err) {
-      console.error("Generation Error:", err);
-      setError((err as Error).message || "An unexpected error occurred during planning.");
+      setError(err instanceof Error ? err.message : "Operational Fault in Logic Engine");
     } finally {
+      clearInterval(interval);
       setIsLoading(false);
+      setProgress(0);
     }
-  }, [isLoading]);
+  }, []);
 
-  const handleOptimize = (goal: OptimizationGoal) => {
-    const updatedPrefs = { ...prefs, optimizationGoal: goal };
-    setPrefs(updatedPrefs);
-    handleGenerate(updatedPrefs);
-  };
+  const handleReset = useCallback(() => {
+    setPlan(null);
+    localStorage.removeItem(CACHE_KEY);
+  }, []);
+
+  const stepContent = useMemo(() => {
+    if (plan) return <MealPlanDisplay plan={plan} prefs={prefs} onReset={handleReset} onOptimize={(g) => handleGenerate({...prefs, optimizationGoal: g})} />;
+    
+    switch (prefs.onboardingStep) {
+      case 0: return <Onboarding prefs={prefs} setPrefs={setPrefs} onNext={() => setPrefs(p => ({...p, onboardingStep: 1}))} />;
+      case 1: return <PreferenceForm prefs={prefs} setPrefs={setPrefs} onNext={() => setPrefs(p => ({...p, onboardingStep: 2}))} onBack={() => setPrefs(p => ({...p, onboardingStep: 0}))} />;
+      case 2: return <SchedulingPanel prefs={prefs} setPrefs={setPrefs} onNext={() => handleGenerate(prefs)} onBack={() => setPrefs(p => ({...p, onboardingStep: 1}))} />;
+      default: return null;
+    }
+  }, [plan, prefs, handleGenerate, handleReset]);
 
   return (
-    <div className="min-h-screen pb-20 selection:bg-orange-100">
-      {isLoading && !isMinimized && <LoadingOverlay onMinimize={() => setIsMinimized(true)} />}
-      
+    <div className="min-h-screen bg-stone-50 selection:bg-orange-100">
+      {isLoading && <LoadingOverlay progress={progress} />}
       <MusicPlayer />
-      
-      <ChatWidget 
-        prefs={prefs} 
-        setPrefs={setPrefs} 
-        onGenerate={handleGenerate} 
-        isLoading={isLoading} 
-      />
+      <HealthCoachWidget />
+      <ChatWidget prefs={prefs} setPrefs={setPrefs} onGenerate={handleGenerate} isLoading={isLoading} />
 
-      <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-stone-100 px-6 py-4 flex flex-col items-center">
-        <div className="w-full flex justify-between items-center max-w-7xl">
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => setPlan(null)}>
-            <div className="w-10 h-10 bg-stone-900 rounded-xl flex items-center justify-center text-white font-black text-xl">M</div>
-            <span className="text-xl font-black tracking-tighter text-stone-900 uppercase">Culinary<span className="text-orange-500 italic">Muse</span></span>
-          </div>
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-2xl border-b border-stone-100 p-6 transition-all">
+        <div className="max-w-[1600px] mx-auto flex justify-between items-center">
+          <button className="flex items-center gap-2 hover:opacity-70 transition-opacity" onClick={handleReset}>
+            <div className="w-10 h-10 bg-stone-900 rounded-2xl flex items-center justify-center text-white font-black text-xl shadow-lg">M</div>
+            <span className="text-xl font-black uppercase tracking-tighter">Culinary <span className="text-orange-500 font-serif italic">Muse</span></span>
+          </button>
           <div className="flex items-center gap-6">
-            {isLoading && isMinimized && (
-              <div className="flex items-center gap-3 bg-orange-50 px-4 py-2 rounded-xl border border-orange-100 animate-pulse">
-                <div className="w-2 h-2 bg-orange-500 rounded-full animate-ping"></div>
-                <span className="text-[10px] font-black text-orange-600 uppercase tracking-widest">Processing Plan...</span>
-                <button onClick={() => setIsMinimized(false)} className="text-[8px] font-bold text-orange-400 hover:text-orange-600 uppercase">View</button>
-              </div>
+            <div className="text-[10px] font-black text-stone-300 uppercase tracking-widest hidden md:block">v5.3 Stable | Live Grounding</div>
+            {plan && (
+              <button onClick={handleReset} className="text-[9px] font-black text-orange-500 uppercase border border-orange-200 px-4 py-2 rounded-full hover:bg-orange-50">New Plan</button>
             )}
-            <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest hidden md:block">
-              AI Logistics Engine v3.3
-            </div>
           </div>
         </div>
-      </nav>
+      </header>
 
-      <main className="container mx-auto px-4 mt-12">
+      <main>
         {error && (
-          <div className="max-w-4xl mx-auto mb-12 p-6 bg-red-50 text-red-700 rounded-3xl border border-red-100 flex items-center gap-4 animate-in fade-in slide-in-from-top-4">
-            <span className="text-2xl">⚠️</span>
-            <div className="flex-1">
-              <p className="font-bold text-sm">Logistics Configuration Error</p>
-              <p className="text-xs opacity-80">{error}</p>
+          <div className="max-w-2xl mx-auto my-12 p-10 bg-red-50 rounded-[3rem] border border-red-100 text-red-700 animate-in slide-in-from-top-4" role="alert">
+            <h4 className="font-bold mb-3 italic text-xl">Operational Fault Identified</h4>
+            <p className="text-sm opacity-80 leading-relaxed">{error}</p>
+            <div className="mt-8 flex gap-4">
+               <button onClick={() => setError(null)} className="text-[10px] font-black uppercase bg-red-700 text-white px-6 py-3 rounded-xl shadow-lg">Acknowledge</button>
+               <button onClick={() => window.location.reload()} className="text-[10px] font-black uppercase border border-red-200 px-6 py-3 rounded-xl">Hard Restart</button>
             </div>
-            <button onClick={() => setError(null)} className="text-[10px] font-bold uppercase tracking-widest bg-red-100 px-4 py-2 rounded-xl">Dismiss</button>
           </div>
         )}
-
-        {plan ? (
-          <MealPlanDisplay plan={plan} prefs={prefs} onReset={() => setPlan(null)} onOptimize={handleOptimize} />
-        ) : (
-          <>
-            <div className="text-center max-w-4xl mx-auto mb-16 space-y-6 animate-in fade-in slide-in-from-top-4 duration-700">
-              <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-stone-900 leading-[1.1]">
-                Kitchen <span className="text-orange-500 italic font-serif">Intelligence.</span>
-              </h1>
-              <p className="text-lg text-stone-500 max-w-2xl mx-auto font-medium">
-                Talk to our Chef Assistant to calibrate your meal plan to your profession, workload, and mental state.
-              </p>
-            </div>
-            <PreferenceForm 
-              prefs={prefs}
-              setPrefs={setPrefs}
-              onSubmit={handleGenerate} 
-              isLoading={isLoading} 
-            />
-          </>
-        )}
+        {stepContent}
       </main>
-
-      <footer className="mt-20 py-12 border-t border-stone-100 text-center">
-        <p className="text-[10px] font-black text-stone-300 uppercase tracking-[0.3em]">Built for high-performance living • 2025</p>
-      </footer>
     </div>
   );
 };

@@ -25,18 +25,46 @@ export enum OptimizationGoal {
   FASTEST = 'Fastest'
 }
 
-export interface UserPersona {
-  age?: number;
-  profession?: string;
-  mentalState?: string;
-  workload?: 'Low' | 'Medium' | 'High' | 'Extreme';
-  upcomingEvents?: string;
+export enum PersonaType {
+  PROFESSIONAL = 'Working Professional',
+  STUDENT = 'Student',
+  HOUSEHOLD = 'Large Household'
 }
 
-export interface WorkoutDay {
-  day: string;
-  activity: string;
-  focus: string;
+export interface SchedulingConfig {
+  reminderTime: 'Morning' | 'Evening' | 'Both';
+  cookingWindowStart: string;
+  cookingWindowEnd: string;
+  remindersPerDay: 1 | 2;
+}
+
+export interface FlexSlot {
+  label: string;
+  start: string;
+  end: string;
+}
+
+export interface CalendarEvent {
+  title: string;
+  description: string;
+  start: string;
+  end: string;
+  type: 'shopping' | 'prep' | 'cooking';
+  alternativeSlots?: FlexSlot[]; // Added for uncertain schedules
+}
+
+export interface GroundingSource {
+  title: string;
+  uri: string;
+  type: 'web' | 'maps';
+}
+
+export interface UserPersona {
+  type: PersonaType;
+  age?: number;
+  mentalState?: string;
+  workload?: 'Low' | 'Medium' | 'High' | 'Extreme';
+  dislikes: string[];
 }
 
 export interface UserPreferences {
@@ -49,9 +77,10 @@ export interface UserPreferences {
   days: number;
   timePerMeal: number;
   workoutPlanEnabled: boolean;
-  selectedWorkoutDay?: WorkoutDay;
   optimizationGoal?: OptimizationGoal;
-  persona?: UserPersona;
+  persona: UserPersona;
+  scheduling: SchedulingConfig;
+  onboardingStep: number;
 }
 
 export interface Meal {
@@ -60,16 +89,19 @@ export interface Meal {
   recipeTitle: string;
   ingredients: { name: string; amount: string; estimatedCost: number }[];
   instructions: string[];
-  substitutions: string[];
   prepTime: number;
-  logicForWorkload?: string; // Why this meal fits the day's mental/physical state
+  logicForWorkload?: string;
 }
 
 export interface DayPlan {
   dayNumber: number;
-  workoutInfo?: string;
   meals: Meal[];
-  dailyCookingSequence: string[];
+  prepReminders: string[];
+}
+
+export interface GroceryStore {
+  name: string;
+  uri: string;
 }
 
 export interface MealPlanResponse {
@@ -77,19 +109,12 @@ export interface MealPlanResponse {
   days: DayPlan[];
   groceryList: { category: string; items: string[] }[];
   totalEstimatedCost: number;
-  budgetStatus: 'Under Budget' | 'On Track' | 'Over Budget';
+  budgetStatus: string;
   fitnessNote?: string;
+  calendarEvents: CalendarEvent[];
+  groundingSources?: GroundingSource[];
+  nearbyStores?: GroceryStore[];
 }
-
-export const DUMMY_WORKOUT_PLAN: WorkoutDay[] = [
-  { day: 'Monday', activity: 'Heavy Lifting: Legs', focus: 'High Protein & Complex Carbs' },
-  { day: 'Tuesday', activity: 'HIIT Cardio', focus: 'Quick Energy & Electrolytes' },
-  { day: 'Wednesday', activity: 'Rest & Recovery', focus: 'Anti-inflammatory & Light' },
-  { day: 'Thursday', activity: 'Upper Body Power', focus: 'High Protein' },
-  { day: 'Friday', activity: 'Yoga & Mobility', focus: 'Hydrating & Fiber' },
-  { day: 'Saturday', activity: 'Endurance Run', focus: 'Carb Loading' },
-  { day: 'Sunday', activity: 'Rest Day', focus: 'Low Carb / Clean' },
-];
 
 export interface ChatMessage {
   role: 'user' | 'model';
